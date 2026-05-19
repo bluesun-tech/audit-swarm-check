@@ -1,15 +1,19 @@
 inputs:
   job:
     required: true
-  pr:
+  pull_number:
     required: false
+  check_run_id:
+    required: true
+  head_sha:
+    required: true
 
 runs:
   using: composite
   steps:
     - uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.client_payload.sha }}
+        ref: ${{ github.event.client_payload.head_sha }}
 
     - run: |
         CONFIG=.audit-swarm/checks-config.yml
@@ -26,3 +30,29 @@ runs:
     #   with:
     #     name: ${{ inputs.job }}
     #     path: result.json
+
+    - name: Complete check run
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.checks.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            check_run_id: ${{ inputs.check_run_id }},
+            status: 'completed',
+            conclusion: 'success',
+          });
+
+    - name: Fail check run
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.checks.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            check_run_id: ${{ inputs.check_run_id }},
+            status: 'completed',
+            conclusion: 'failure',
+          });
