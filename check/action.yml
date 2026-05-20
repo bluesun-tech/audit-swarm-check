@@ -1,0 +1,52 @@
+name: Audit Swarm Check
+description: Run a single audit-swarm check and upload its result as a workflow artifact.
+
+inputs:
+  job:
+    description: Check job name from checks-config.yml
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.client_payload.head_sha }}
+
+    - id: config
+      name: Resolve check config
+      shell: bash
+      env:
+        JOB: ${{ inputs.job }}
+      run: |
+        CONFIG=.audit-swarm/checks-config.yml
+        AGENT=$(yq ".checks.$JOB.agent" "$CONFIG")
+        echo "agent=${AGENT}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Cursor CLI
+      if: steps.config.outputs.agent == 'cursor'
+      shell: bash
+      run: |
+        curl https://cursor.com/install -fsS | bash
+        echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+    - name: Run check
+      shell: bash
+      env:
+        JOB: ${{ inputs.job }}
+        CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        "${{ github.action_path }}/../src/context.sh"
+
+        CONFIG=.audit-swarm/checks-config.yml
+        export AGENT=$(yq ".checks.$JOB.agent" "$CONFIG")
+        export PROMPT=$(yq ".checks.$JOB.prompt" "$CONFIG")
+
+        "${{ github.action_path }}/../src/run.sh"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: audit-swarm-${{ inputs.job }}
+        path: /tmp/output/result.json
+        if-no-files-found: error
